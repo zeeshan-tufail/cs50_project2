@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport"
+		content="width=device-width, initial-scale=1, shrink-to-fit=no">
+		
+	<link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">	
+	<link rel="stylesheet" href="{{ url_for('static', filename='project2.css') }}">		
+	<script type="text/javascript" src="{{ url_for('static', filename='socket.io.slim.js') }}"></script>
+	<script src="{{ url_for('static', filename='handlebars.min-v4.7.3.js') }}"></script>
+	
+	<script id="addUsernameTemp" type="text/x-handlebars-template">
+	   <div>
+			<div class="text-center mb-4">						
+				<p>For first time, you should enter a display name that will eventually be associated with every message you send.	     
+			</div>				
+			<form id="addUserForm" class="form-signin">		
+				<div class="form-label-group">    	
+			    	<input type="text" id="userName" name="userName" class="form-control" required autocomplete="off" autofocus maxlength="10" />
+			    	<label for="userName">User Name</label>
+			  	</div>			
+				<input id="addUser" class="btn btn-lg btn-primary btn-block" type="submit" value="Add" >
+			</form>	
+	   </div>		
+	</script>
+	
+	<script id="channelListTemp" type="text/x-handlebars-template">
+		<div class="text-center mb-4">
+			<h3 class="h3 mb-3 font-weight-normal">Available Channels</h3>	
+			<p>Please choose either of the below channel to start messaging.</p>
+			<!-- Your display name as: <span style="font-weight: bold; color:blue"> {% raw -%} {{ display_name }} {%- endraw %} </span></p> -->
+			<div class="availableChannelBox">
+				<ul>
+					{% raw -%}
+						{{#each channels}}					 
+						  <li><a href="" class="channel-link" data-channel="{{this.channel_name}}"> <span>{{this.channel_name}}</span></a> : {{this.channel_description}}</li>
+						{{else}}
+							No Channels.
+						{{/each}}
+					{%- endraw %}	
+				</ul>
+			</div>		     
+		</div>
+		<hr />
+	</script>
+	
+	<script id="addChannelTemp" type="text/x-handlebars-template">	
+			<div class="text-center mb-4">			
+			<h5>Add New Channel</h5>	     
+		</div>
+		<div id="errorDiv" role="alert"></div>						
+		<form id="addChannelForm" class="form-signin">
+			<div class="form-label-group">    	
+		    	<input type="text" id="channelName" name="channelName" class="form-control" required autocomplete="off" autofocus maxlength="15" />
+				<label for="channelName">Channel Name</label>
+		  	</div>
+			<div class="form-label-group">    	
+				<input type="text" id="channelDesc" name="channelDesc" class="form-control" required autocomplete="off" maxlength="60" />
+				<label for="channelDesc">Channel Description</label>		    	
+		  	</div>				
+			<input id="addChannel" class="btn btn-lg btn-primary btn-block" type="submit" value="Create" >
+		</form>			
+	</script>
+	
+	<script id="joinChannelTemp" type="text/x-handlebars-template">
+		<div class="text-center mb-4">
+			<h3 class="h3 mb-3 font-weight-normal">Channel Detail</h3>	
+			<p>Your display name as: <span style="font-weight: bold; color:blue"> {% raw -%} {{ display_name }} {%- endraw %} </span>.</p>
+			<ul>
+				{% raw -%}		 
+				  	<li><span>Channel Name:</span> {{channel.channel_name}}</li>
+					<li><span>Channel Description:</span> {{channel.channel_description}}</li>
+					<li><span>User Joined:</span> {{channel.total_user}}</li>
+					<li><span>Create Date:</span> {{channel.create_date}}</li>				
+				{%- endraw %}	
+			</ul>		     
+		</div>
+		<div class="row">
+			<div class="col-6"><button id="joinBtn" class="btn btn-lg btn-primary btn-block">Join</button> </div>
+			<div class="col-6"><button id="cancelBtn" class="btn btn-lg btn-primary btn-block">Cancel</button> </div> 
+		</div>	
+		<div class="row">
+			<hr/>
+		</div>
+	</script>	
+	
+	<script id="messagingTemp" type="text/x-handlebars-template">	
+		<div class="row">
+		  	<div class="col-12 text-center bg-primary"><span style="color:white; font-size: 20px;">Active: {% raw -%} {{ messageChannel }} {%- endraw %} 
+			 ,  DisplayName: {% raw -%} {{ username }} {%- endraw %} 
+			</span></div>
+		  	<div class="col-12">
+					<div class="row align-items-end messageBox">
+						<div class="col-12 avoidTxtTunOver" id="msgDiv">
+							{% raw -%}
+								{{#each messages}}	
+								<span>{{this.create_date}}-{{this.created_by}}:</span> {{this.message}} <br/>
+			
+								{{/each}}
+							{%- endraw %}
+							<!-- <textarea class="form-control" rows="17" readonly > </textarea> -->
+						</div>
+					</div>
+		  	</div>
+		  	<div class="col-8"><input style="width:420px" type="text" id="message" name="message" class="form-control" required autocomplete="off" /></div>
+			<div class="col-4"><button id="sendBtn" class="btn btn-primary btn-block">Send</button><input id="the-file" name="file" type="file"></div>
+		</div>
+	</script>
+		
+	<script>	
+	 	//Initialize the local storage value for display name
+		if( !localStorage.getItem("username")){
+			localStorage.setItem("username", "");
+			localStorage.setItem("activechannel", "");
+		}
+		
+		// When DOM loaded.
+		document.addEventListener("DOMContentLoaded" , () => {
+						
+			const username = localStorage.getItem("username");	
+			if (username){ 				
+				getChannels();
+				addChannel();
+				addHTMLMessageBox();				
+			}else{
+				//Generate Template for enter display name
+				const addUsernameHtml = Handlebars.compile(document.querySelector("#addUsernameTemp").innerHTML);
+				document.querySelector("#addUsernameDiv").innerHTML = addUsernameHtml();				
+				document.querySelector("#addUserForm").onsubmit = function () {
+					const userName = document.querySelector("#userName").value;
+					localStorage.setItem("username", userName);
+					this.parentElement.remove();
+					getChannels()
+					addChannel();
+					return false;
+				}									
+			}
+
+			//Connect to websocket
+			var socket = io.connect(location.protocol + "//" + document.domain + ":" + location.port);			
+			// When connected, configure buttons
+			socket.on("connect", () => {				
+				// Send button should emit a "send message" event
+				console.debug("---- connect ----------")
+				document.querySelector('#sendBtn').onclick= () => {
+					const message = document.querySelector("#message").value;
+					const channelName = localStorage.getItem("activechannel");
+					const sentBy = localStorage.getItem("username");
+					const file = document.querySelector('#the-file').files[0]; //document.getElementById('the-file');
+					//console.log("Filename " + file.name);
+					/*
+					const file = document.querySelector('#the-file').files;
+					for (var i = 0; i < file.length; i++) {
+					  console.log("Filename " + file[i].name);
+					}
+						                
+					const file_type = "text/plain";
+	                const myblob =  new Blob([file]);
+	                console.log("myblob"+myblob);
+					*/										
+					console.debug("file"+file)
+					console.debug("sentBy"+sentBy)
+					var fileName=""
+					if( file){
+						fileName = file.name;
+					}
+					socket.emit('send message', {"message": message, "channelName":channelName, "sentBy":sentBy, "file":file, "fileName":fileName}); //"myblob":myblob, 
+					document.querySelector("#message").value="";
+					document.querySelector('#the-file').value="";
+				
+					return false;
+				}
+			});
+			
+			//When a new vote announced, add to the unordered list
+			socket.on(localStorage.getItem("activechannel"), data => {
+				//console.log(data.msg.create_date);	
+				console.log("file"+data.file);	
+				/*
+				console.log("fileblob"+data.myblob);
+				var b = new Blob();	
+				var fb = data.myblob;
+				console.log("b --->  "+fb.arrayBuffer());	
+				console.log("retur n "+fr.readAsArrayBuffer(data.file))
+				*/								
+				//document.querySelector("#msgDiv").append(download("download", data.file));						
+				document.querySelector("#msgDiv").innerHTML += data.msg.create_date+"-"+data.msg.created_by+":  "+data.msg.message+"<br/>";
+				if(data.fileName){
+					document.querySelector("#msgDiv").append(download(data.fileName, data.file));
+					document.querySelector("#msgDiv").innerHTML +="<br/>"
+				}				
+			});			
+						
+		});
+
+
+function download(filename, blob) {
+	//var bytes = new Uint8Array(data.file);
+	//var blob = new Blob([bytes]);
+	//var blob = new Blob([data.file]);
+	//var blob = new Blob([data.file], {type: "application/txt"});
+	var streamBlob = new Blob([blob], {type:"application/octet-stream"});
+	//console.log("b --->  "+blob);				
+	var link = document.createElement("a");
+	link.innerHTML ="download";
+	//link.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+	//link.setAttribute('href', 'data:application/octet-stream,' + window.URL.createObjectURL(blob));
+	link.href = window.URL.createObjectURL(streamBlob);
+	link.setAttribute('download', filename);
+	//link.download = "attachement.txt";
+	/*	
+    if (document.createEvent) {
+        var event = document.createEvent('MouseEvents');
+        event.initEvent('click', true, true);
+        link.dispatchEvent(event);
+    } else {
+        link.click();
+    }
+	*/
+	return link;
+}
+	
+		// Get channels from server.
+		function getChannels(){			
+			// Open new request to get channels from server
+			const request  = new XMLHttpRequest();
+			request.open("GET","/channel_list");			
+			request.onload = () => {
+				//console.debug("Successfully get response from server : " + request.responseText);			
+				//Extract json data from request
+				const data = JSON.parse(request.responseText);				
+				loadChannelDiv(data)										
+			};			
+			/*
+			if(value) : Will evaluate to true if value is not:
+			null
+			undefined
+			NaN
+			empty string ("")
+			0
+			false
+			*/
+			request.send();
+		}
+		
+		// Channel Load HTML  Div	
+		function loadChannelDiv(data){				
+			//Generate Template for channel
+			const channelHtml = Handlebars.compile(document.querySelector("#channelListTemp").innerHTML);
+			const temp = channelHtml({"display_name":localStorage.getItem("username"), "channels":data.channels});
+			document.querySelector("#channelListDiv").innerHTML = temp;	
+			if(data.channels)
+				//localStorage.setItem("activechannel", "")
+			// Channel detail and join
+			document.querySelectorAll(".channel-link").forEach( link => {
+				link.onclick = () => {					
+					channelDetailAndJoin(link, data.channels);					
+					return false;
+				}
+			})							
+		}
+		
+		function channelDetailAndJoin(link, channels){
+			const channelName = link.dataset.channel;
+			//console.debug("link.dataset.channel=" + channelName);
+			const channel = channels.find(channel => channel.channel_name === channelName);
+			console.log(channel);	
+			const channelDetaiAndJoinlHtml = Handlebars.compile(document.querySelector("#joinChannelTemp").innerHTML)
+			const temp = channelDetaiAndJoinlHtml({"display_name":localStorage.getItem("username"), "channel":channel})
+			document.querySelector("#messageBoxHeading").innerHTML = temp;
+			
+			//Click to join channel
+			document.addEventListener("click", event => {
+				const elementId = event.target.id;
+				console.debug("EventName:" + elementId);
+				if(elementId === "joinBtn"){
+					//Create Request to join the channel
+					const request  = new XMLHttpRequest();
+					request.open("POST","/join");
+					request.onload = () => {
+						const data = JSON.parse(request.responseText);
+						if(data.success){							
+							localStorage.setItem("activechannel", channel.channel_name);
+							document.querySelector("#messageBoxHeading").style.display="none";
+							/*const messagingHtml = Handlebars.compile(document.querySelector("#messagingTemp").innerHTML)
+							const temp = messagingHtml({"messageChannel":channel})
+							document.querySelector("#messaging").innerHTML = temp;	*/
+							addHTMLMessageBox();						
+						}							
+					}					
+					const formData = new FormData();
+					formData.append("username",localStorage.getItem("username"));
+					formData.append("channelName", channel.channel_name)
+					request.send(formData);									
+				}else if(elementId === "cancelBtn"){
+					document.querySelector("#messageBoxHeading").style.display="none";					
+				}
+				
+				return false;								
+			});	
+		}
+		
+		// Create Channel HTML form
+		function addChannel(){				
+			//Generate Template for channel
+			const addChannelHtml = Handlebars.compile(document.querySelector("#addChannelTemp").innerHTML);				
+			document.querySelector("#addChannelDiv").innerHTML = addChannelHtml();
+			//document.querySelector("#errorDiv").style.display="none";	
+			//or document.querySelector("#errorDiv").remove();	
+			document.querySelector("#addChannelForm").onsubmit = () => {
+				const channelName = document.querySelector("#channelName").value;
+				const channelDesc = document.querySelector("#channelDesc").value;
+							
+				// Open new request to get channels from server
+				const request  = new XMLHttpRequest();
+				request.open("POST","/add_channel");			
+				request.onload = () => {
+					console.debug("Successfully get response from server : " + request.responseText);			
+					//Extract json data from request
+					const data = JSON.parse(request.responseText);
+					loadChannelDiv(data);
+					document.querySelector("#channelName").value="";
+					document.querySelector("#channelDesc").value="";
+					if(!data.success){				
+						console.debug("ErorEiv=" + document.querySelector("#errorDiv"));
+						//document.querySelector("#errorDiv").classList.add("alert");
+						document.querySelector("#errorDiv").className="alert alert-danger";											
+						document.querySelector("#errorDiv").innerHTML = data.Error;	
+					}else{
+						document.querySelector("#errorDiv").style.display="none";
+					}									
+				};				
+				
+				//Add new channel to request form.									
+				const form = new FormData();
+				form.append("channelName", channelName);
+				form.append("channelDesc", channelDesc);				
+				//Send request.
+				request.send(form);
+				return false;
+			}	
+		}
+		
+		function addHTMLMessageBox(){
+			if(localStorage.getItem("username") && localStorage.getItem("activechannel")){
+				const request  = new XMLHttpRequest();
+				request.open("POST","/channel_messages");			
+				request.onload = () => {						
+					//Extract json data from request
+					const data = JSON.parse(request.responseText);					
+					if(data.success){				
+						const messagingHtml = Handlebars.compile(document.querySelector("#messagingTemp").innerHTML)
+						const temp = messagingHtml({"messageChannel":localStorage.getItem("activechannel"), "username":localStorage.getItem("username"), "messages":data.messages})
+						document.querySelector("#messaging").innerHTML = temp;	
+					}								
+				};
+							
+				//Add new channel to request form.									
+				const form = new FormData();
+				form.append("channelName", localStorage.getItem("activechannel"));						
+				//Send request.
+				request.send(form);
+				return false;
+			}			
+		}		
+
+	</script>
+	
+	<title>
+		Online Messaging Service
+	</title>
+</head>
+
+<body>	
+	<div class="container">
+			
+		<header>
+			 {% block heading %} 			 
+			<div class="text-center mb-4">
+				<h1 class="h1 mb-3 font-weight-normal">Online Messaging</h1>
+			</div>				   
+			 {%  endblock %}			
+		</header>		
+
+		<section>  
+		  <div class="row">
+		    <div class="col"></div>
+		    <div class="col-10">
+				<div id="addUsernameDiv"></div>
+				
+				<div class="row">
+				  <div class="col-12"></div>
+				  	<div class="col-8" id="messageArea" >
+						<div id="messageBoxHeading"></div>	
+						<div id="messaging"></div>
+					</div>
+				
+				  <div class="col-4" id="channelDiv">
+					<div id="channelListDiv"></div>
+					<div id="addChannelDiv"></div>
+				  </div>
+				
+				</div>		
+				
+		    	
+		    </div>
+		    <div class="col"></div>
+		  </div>
+ 		</section>
+  
+	  	<footer>
+		  <div class="row">
+		    <div class="col-12">	    	
+				<p class="mt-5 mb-3 text-muted text-center">&copy;2020 CS50-Project2</p>				
+		    </div>
+		  </div>			
+		</footer>		
+
+	</div>		
+</body>
+</html>
